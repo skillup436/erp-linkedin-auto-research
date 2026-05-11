@@ -1,34 +1,35 @@
 name: Generate LinkedIn Content
 on:
   schedule:
-    # Run every weekday (Mon-Fri) at 9 AM UTC
-    - cron: '0 9 * * 1-5'
+    # Run every weekday (Mon-Fri) at 9 AM Riyadh time (UTC+3 = 6 AM UTC)
+    - cron: '0 6 * * 1-5'
   workflow_dispatch: # Allow manual trigger
 jobs:
   generate:
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
-    
+
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.11'
-    
+
     - name: Install dependencies
       run: |
         pip install -r requirements.txt
-    
+
     - name: Generate content
+      id: generate
       env:
         ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
         NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
       run: |
         python scripts/generate_content.py
-    
+
     - name: Send post to inbox
       uses: dawidd6/action-send-mail@v3
       with:
@@ -43,14 +44,43 @@ jobs:
         body: |
           A new LinkedIn post has been generated and saved to Notion.
 
-          Date: ${{ github.event.repository.updated_at }}
+          Date: ${{ github.run_id }}
           Run: #${{ github.run_number }}
 
           Please review your Notion database for the full content:
           https://notion.so
 
           This post was automatically crafted by your ERP LinkedIn Auto-Research system.
-    
+
+    - name: Notify on failure
+      if: failure()
+      uses: dawidd6/action-send-mail@v3
+      with:
+        server_address: smtp.gmail.com
+        server_port: 465
+        secure: true
+        username: ${{ secrets.GMAIL_USERNAME }}
+        password: ${{ secrets.GMAIL_APP_PASSWORD }}
+        subject: "[ALERT] ERP LinkedIn - Content Generation FAILED (#${{ github.run_number }})"
+        to: draissam@gmail.com
+        from: LinkedIn Auto-Research <${{ secrets.GMAIL_USERNAME }}>
+        body: |
+          The daily LinkedIn content generation workflow has FAILED.
+
+          Workflow: Generate LinkedIn Content
+          Run #: ${{ github.run_number }}
+          Triggered at: ${{ github.event.repository.updated_at }}
+
+          Common causes:
+          - Claude API credit exhausted (check https://console.anthropic.com)
+          - Notion token expired or rate limited
+          - Dependency installation error
+
+          View the full error log here:
+          https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+          Please investigate and rerun manually once resolved.
+
     - name: Notify completion
       run: |
         echo "Content generation completed successfully!"
